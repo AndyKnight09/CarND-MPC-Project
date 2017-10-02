@@ -92,14 +92,55 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
+          const long long latencyMs = 100;
+
           /*
           * TODO: Calculate steering angle and throttle using MPC.
           *
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+
+          // Convert waypoints into vehicle frame
+          std::vector<double> waypoint_x, waypoint_y;
+          for (size_t i = 0; i < ptsx.size(); i++) {
+            double dx = ptsx[i] - px;
+            double dy = ptsy[i] - py;
+            waypoint_x.push_back(dx * cos(psi) + dy * sin(psi));
+            waypoint_y.push_back(-dx * sin(psi) + dy * cos(psi));
+          }
+
+          // Third-order polynomial fit
+          auto coeffs = polyfit(
+            Eigen::VectorXd::Map(waypoint_x.data(), waypoint_x.size()), 
+            Eigen::VectorXd::Map(waypoint_y.data(), waypoint_y.size()), 
+            3
+          );
+
+          // Predict state of vehicle in future (to account for latency)
+          static double last_delta, last_throttle = 0.0;
+          double pred_x, pred_y, pred_psi, pred_v;
+          mpc.PredictState(latencyMs, v, last_delta, last_throttle, pred_x, pred_y, pred_psi, pred_v);
+
+          // Calculate predicted cross track error and steer error
+          double cte = polyeval(coeffs, pred_x) - pred_y;
+          double epsi = pred_psi - atan(coeffs[1]);
+
+          // Create predicted state vector
+          Eigen::VectorXd state(6);
+          state << pred_x, pred_y, pred_psi, pred_v, cte, epsi;
+          
+          // Solve for future actuation using MPC
+          auto vars = mpc.Solve(state, coeffs);
+
+          // Extract actuations
+          double delta = vars[0];
+          double steer_value = -delta / deg2rad(25);
+          double throttle_value = vars[1];
+
+          // Store previous actuations
+          last_delta = delta;
+          last_throttle = throttle_value;
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
@@ -113,6 +154,10 @@ int main() {
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
+          for (size_t i = 2; i < vars.size(); i += 2) {
+            mpc_x_vals.push_back(vars[i]);
+            mpc_y_vals.push_back(vars[i + 1]);
+          }
 
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
@@ -123,13 +168,17 @@ int main() {
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
+          for (size_t i = 0; i < 20; i++) {
+            double x = i * 5.0;
+            next_x_vals.push_back(x);
+            next_y_vals.push_back(polyeval(coeffs, x));
+          }
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
 
-
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-          std::cout << msg << std::endl;
+          //std::cout << msg << std::endl;
           // Latency
           // The purpose is to mimic real driving conditions where
           // the car does actuate the commands instantly.
@@ -139,7 +188,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          this_thread::sleep_for(chrono::milliseconds(latencyMs));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {

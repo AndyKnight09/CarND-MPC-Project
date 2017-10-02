@@ -12,8 +12,10 @@ class MPC {
 
   virtual ~MPC();
 
+  void PredictState(long long latencyMs, double v, double last_delta, double last_throttle, double & pred_x, double & pred_y, double & pred_psi, double & pred_v);
+
   // Solve the model given an initial state and polynomial coefficients.
-  // Return the first actuatotions.
+  // Return the first actuations.
   vector<double> Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
 };
 
