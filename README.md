@@ -1,6 +1,10 @@
 # CarND-Controls-MPC
 Self-Driving Car Engineer Nanodegree Program
 
+# Project Write Up
+
+The [project write up](./project_writeup.md) details the project implementation.
+
 ---
 
 ## Dependencies
